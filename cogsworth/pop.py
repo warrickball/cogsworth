@@ -8,7 +8,6 @@ import astropy.units as u
 import astropy.coordinates as coords
 import h5py as h5
 import pandas as pd
-from tqdm import tqdm
 import yaml
 import logging
 import matplotlib.pyplot as plt
@@ -22,13 +21,13 @@ import gala.dynamics as gd
 from gala.potential.potential.io import to_dict as potential_to_dict, from_dict as potential_from_dict
 
 from cogsworth import sfh
-from cogsworth.kicks import integrate_orbit_with_events
+from cogsworth.kicks import integrate_orbit_with_events, integrate_orbits_with_events_batch
 from cogsworth.events import identify_events
 from cogsworth.classify import determine_final_classes
 from cogsworth.observables import get_photometry
 from cogsworth.tests.optional_deps import check_dependencies
 from cogsworth.plot import plot_cartoon_evolution, plot_galactic_orbit
-from cogsworth.utils import translate_COSMIC_tables
+from cogsworth.utils import translate_COSMIC_tables, _batched
 
 from cogsworth.citations import CITATIONS
 
@@ -57,7 +56,7 @@ class Population():
         Any additional parameters to pass to your chosen ``SFH model`` when it is initialised
     galactic_potential : :class:`Potential <gala.potential.potential.PotentialBase>`, optional
         Galactic potential to use for evolving the orbits of binaries, by default
-        :class:`~gala.potential.potential.MilkyWayPotential`
+        :class:`~gala.potential.potential.MilkyWayPotential2022`
     v_dispersion : :class:`~astropy.units.Quantity` [velocity], optional
         Velocity dispersion to apply relative to the local circular velocity, by default 5*u.km/u.s
     max_ev_time : :class:`~astropy.units.Quantity` [time], optional
@@ -126,7 +125,7 @@ class Population():
     """
     def __init__(self, n_binaries, processes=8, m1_cutoff=0, final_kstar1=list(range(16)),
                  final_kstar2=list(range(16)), sfh_model=sfh.Wagg2022, sfh_params={},
-                 galactic_potential=gp.MilkyWayPotential(), v_dispersion=5 * u.km / u.s,
+                 galactic_potential=gp.MilkyWayPotential2022(), v_dispersion=5 * u.km / u.s,
                  max_ev_time=12.0*u.Gyr, timestep_size=1 * u.Myr, BSE_settings={}, ini_file=None,
                  sampling_params={}, bcm_timestep_conditions=[], store_entire_orbits=True,
                  orbit_batch_size=None):
@@ -612,7 +611,7 @@ class Population():
             print(f"[{time.time() - lap:1.1f}s] Evolve binaries (run COSMIC)")
             lap = time.time()
 
-        self.perform_galactic_evolution(progress_bar=with_timing)
+        self.perform_galactic_evolution()
         if with_timing:
             print(f"[{time.time() - lap:1.1f}s] Get orbits (run gala)")
 
@@ -810,7 +809,7 @@ class Population():
                                                     "binaries to a `nan.h5` file with their initC, bpp, "
                                                     "and kick_info tables"))
 
-    def perform_galactic_evolution(self, quiet=False, progress_bar=True):
+    def perform_galactic_evolution(self, quiet=False):
         """Use :py:mod:`gala` to perform the orbital integration for each evolved binary
 
         Parameters
@@ -870,21 +869,26 @@ class Population():
 
             # setup arguments to combine primary and secondaries into a single list
             primary_args = [(w0s[i], self.max_ev_time - self.initial_galaxy.tau[i], self.max_ev_time,
-                             copy(self.timestep_size), self.galactic_potential,
-                             primary_events[i], self.store_entire_orbits, quiet)
+                             copy(self.timestep_size), primary_events[i],
+                             self.galactic_potential, self.store_entire_orbits, quiet)
                             for i in range(self.n_binaries_match)]
             secondary_args = [(w0s[i], self.max_ev_time - self.initial_galaxy.tau[i], self.max_ev_time,
-                               copy(self.timestep_size), self.galactic_potential,
-                               secondary_events[i], self.store_entire_orbits, quiet)
+                               copy(self.timestep_size), secondary_events[i],
+                               self.galactic_potential, self.store_entire_orbits, quiet)
                               for i in range(self.n_binaries_match) if secondary_events[i] is not None]
             args = primary_args + secondary_args
 
-            # evolve the orbits from birth until present day
-            if progress_bar:
-                orbits = self.pool.starmap(integrate_orbit_with_events,
-                                           tqdm(args, total=self.n_binaries_match))
-            else:
-                orbits = self.pool.starmap(integrate_orbit_with_events, args)
+            # work out the correct batch size (default to the smaller of 1024 or n_orbits / n_processes)
+            batch_size = self.orbit_batch_size
+            if batch_size is None:
+                batch_size = max(min(1024, int(np.floor(len(args) / self.processes))), 1)
+            # create a generator to batch the arguments
+            batched_args = _batched(args, batch_size)
+
+            # run the orbits in parallel
+            orbits = []
+            for orbit_batch in self.pool.map(integrate_orbits_with_events_batch, batched_args):
+                orbits.extend(orbit_batch)
 
             # if a pool didn't exist before then close the one just created
             if not pool_existed:
@@ -1645,7 +1649,7 @@ class EvolvedPopulation(Population):
             lap = time.time()
 
         self.pool = Pool(self.processes) if self.processes > 1 else None
-        self.perform_galactic_evolution(progress_bar=with_timing)
+        self.perform_galactic_evolution()
         if with_timing:
             print(f"[{time.time() - lap:1.1f}s] Get orbits (run gala)")
 
