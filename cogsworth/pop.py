@@ -79,6 +79,9 @@ class Population():
         Whether to store the entire orbit for each binary, by default True. If not then only the final
         PhaseSpacePosition will be stored. This cuts down on both memory usage and disk space used if you
         save the Population (as well as how long it takes to reload the data).
+    orbit_batch_size : `int`, optional
+        Size of batches to use when integrating orbits over several processes,
+        by default min(1024, n_orbits / processes)
 
     Attributes
     ----------
@@ -125,7 +128,8 @@ class Population():
                  final_kstar2=list(range(16)), sfh_model=sfh.Wagg2022, sfh_params={},
                  galactic_potential=gp.MilkyWayPotential(), v_dispersion=5 * u.km / u.s,
                  max_ev_time=12.0*u.Gyr, timestep_size=1 * u.Myr, BSE_settings={}, ini_file=None,
-                 sampling_params={}, bcm_timestep_conditions=[], store_entire_orbits=True):
+                 sampling_params={}, bcm_timestep_conditions=[], store_entire_orbits=True,
+                 orbit_batch_size=None):
 
         # require a sensible number of binaries if you are not targetting total mass
         if not ("sampling_target" in sampling_params and sampling_params["sampling_target"] == "total_mass"):
@@ -146,6 +150,7 @@ class Population():
         self.timestep_size = timestep_size
         self.pool = None
         self.store_entire_orbits = store_entire_orbits
+        self.orbit_batch_size = orbit_batch_size
 
         self._file = None
         self._initial_binaries = None
