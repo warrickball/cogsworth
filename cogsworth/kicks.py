@@ -6,7 +6,7 @@ import gala.potential as gp
 import astropy.coordinates as coords
 import astropy.units as u
 
-__all__ = ["get_kick_differential", "integrate_orbit_with_events"]
+__all__ = ["get_kick_differential", "integrate_orbit_with_events", "integrate_orbit_with_events_batch"]
 
 
 def get_kick_differential(delta_v_sys_xyz, phase=None, inclination=None):
@@ -44,8 +44,26 @@ def get_kick_differential(delta_v_sys_xyz, phase=None, inclination=None):
     return kick_differential
 
 
-def integrate_orbit_with_events(w0, t1, t2, dt, potential=gp.MilkyWayPotential(), events=None,
-                                store_all=True, quiet=False):
+def integrate_orbits_with_events_batch(task):
+    """Integrate a batch of :class:`~gala.dynamics.PhaseSpacePosition` with events
+    that occur at certain times
+
+    Parameters
+    ----------
+    task : `tuple`
+        Tuple containing the following parameters:
+        `w0`, `t1`, `t2`, `dt`, `events`, `potential`, `store_all`, `quiet`
+
+    Returns
+    -------
+    orbit_batch : `list`
+        Batch of integrated orbits.
+    """
+    return [integrate_orbits_with_events(w0, t1, t2, dt, events, potential, store_all, quiet)
+            for w0, t1, t2, dt, events, potential, store_all, quiet in task]
+
+
+def integrate_orbits_with_events(w0, t1, t2, dt, events, potential, store_all, quiet):
     """Integrate :class:`~gala.dynamics.PhaseSpacePosition` in a 
     :class:`Potential <gala.potential.potential.PotentialBase>` with events that occur at certain times
 
