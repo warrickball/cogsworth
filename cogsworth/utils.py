@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
+from itertools import islice
 
 
-__all__ = ["kstar_translator", "evol_type_translator", "translate_COSMIC_tables"]
+__all__ = ["kstar_translator", "evol_type_translator", "translate_COSMIC_tables", "_batched"]
 
 fs = 24
 
@@ -113,3 +114,28 @@ def translate_COSMIC_tables(tab, kstars=True, evol_type=True, label_type="short"
             tab.loc[:, "evol_type_str"] = evol_type_str
 
     return tab
+
+
+def _batched(iterable, n):
+    """Batch an iterable into chunks of size n (last batch may be smaller)
+
+    (This is taken from itertools.batched to avoid a minimum Python 3.12 requirement)
+
+    Parameters
+    ----------
+
+    iterable : `iterable`
+        Iterable to be batched
+    n : `int`
+        Size of each batch
+
+    Returns
+    -------
+    batch : `tuple`
+        Batch of size n
+    """
+    if n < 1:
+        raise ValueError('n must be at least one')
+    iterator = iter(iterable)
+    while batch := tuple(islice(iterator, n)):
+        yield batch
