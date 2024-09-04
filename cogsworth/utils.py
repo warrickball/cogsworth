@@ -134,8 +134,8 @@ def _batched(iterable, n):
     batch : `tuple`
         Batch of size n
     """
-    if n < 1:
-        raise ValueError('n must be at least one')
+    if n < 1:       # pragma: no cover
+        raise ValueError(f'Batch size must be at least 1, you provided {n}')
     iterator = iter(iterable)
     while batch := tuple(islice(iterator, n)):
         yield batch
